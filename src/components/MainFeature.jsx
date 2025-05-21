@@ -120,6 +120,9 @@ const MainFeature = ({ activeTab }) => {
   // Handle invoice form submission
   const handleInvoiceSubmit = (e) => {
     e.preventDefault();
+    
+    // Validate form
+    if (!newInvoice.clientName || !newInvoice.invoiceNumber || !newInvoice.amount || !newInvoice.issueDate || !newInvoice.dueDate) {
       toast.error('Please fill all required fields');
       return;
     }
@@ -615,17 +618,15 @@ const MainFeature = ({ activeTab }) => {
                       </td>
                       <td className="py-3 px-4">
                         <span className={`badge flex items-center gap-1 ${
-                          invoice.paymentStatus === 'overdue' ? 
-                            'badge-danger font-medium' : 
-                            invoice.paymentStatus === 'paid' ? 
-                              'badge-success' : 'badge-warning'
-                        }`}>
-                        <span className={
                           invoice.paymentStatus === 'paid' ? 'badge-success' :
                           invoice.paymentStatus === 'pending' ? 'badge-warning' :
-                          'badge-danger'
+                           invoice.paymentStatus === 'overdue' ? 
+                             'badge-danger font-medium' : 
+                             'badge-warning'
                         }`}>
+                        <span>
                           {invoice.paymentStatus}
+                        </span>
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right">
