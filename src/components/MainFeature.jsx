@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
-import { format } from 'date-fns';
+import { format, addDays, isAfter } from 'date-fns';
 import { toast } from 'react-toastify';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getIcon } from '../utils/iconUtils';
+import { sendOverdueNotification } from '../services/notificationService';
+import { sendOverdueInvoiceEmail } from '../utils/emailUtils';
 
 // Generate some mock data
 const generateMockInvoices = () => {
@@ -14,8 +16,11 @@ const generateMockInvoices = () => {
     clientName: clients[Math.floor(Math.random() * clients.length)],
     invoiceNumber: `INV-${Math.floor(Math.random() * 10000)}`,
     amount: (Math.random() * 5000 + 500).toFixed(2),
+    clientEmail: `client${i}@example.com`,
     issueDate: new Date(2023, Math.floor(Math.random() * 12), Math.floor(Math.random() * 28) + 1),
+    dueDate: new Date(2023, Math.floor(Math.random() * 12), Math.floor(Math.random() * 28) + 1),
     paymentStatus: statuses[Math.floor(Math.random() * statuses.length)],
+    notificationSent: false,
   }));
 };
 
@@ -53,9 +58,11 @@ const MainFeature = ({ activeTab }) => {
   // State for form data
   const [newInvoice, setNewInvoice] = useState({
     clientName: '',
+    clientEmail: '',
     invoiceNumber: '',
     amount: '',
     issueDate: format(new Date(), 'yyyy-MM-dd'),
+    dueDate: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
     paymentStatus: 'pending'
   });
   
@@ -80,12 +87,39 @@ const MainFeature = ({ activeTab }) => {
     localStorage.setItem('expenses', JSON.stringify(expenses));
   }, [expenses]);
   
+  // Check for overdue invoices
+  useEffect(() => {
+    const checkOverdueInvoices = async () => {
+      const today = new Date();
+      const updatedInvoices = invoices.map(invoice => {
+        const dueDate = new Date(invoice.dueDate);
+        
+        // Check if the invoice is overdue but not marked as overdue yet
+        if (isAfter(today, dueDate) && 
+            invoice.paymentStatus === 'pending') {
+          
+          // Send notification if client email exists and notification hasn't been sent
+          if (invoice.clientEmail && !invoice.notificationSent) {
+            sendOverdueNotification(invoice)
+              .then(sent => {
+                if (sent) toast.info(`Notification sent to ${invoice.clientName} for overdue invoice`);
+              });
+          }
+          
+          return { ...invoice, paymentStatus: 'overdue', notificationSent: true };
+        }
+        return invoice;
+      });
+      
+      setInvoices(updatedInvoices);
+    };
+    
+    checkOverdueInvoices();
+  }, [invoices]);
+  
   // Handle invoice form submission
   const handleInvoiceSubmit = (e) => {
     e.preventDefault();
-    
-    // Validate form
-    if (!newInvoice.clientName || !newInvoice.invoiceNumber || !newInvoice.amount || !newInvoice.issueDate) {
       toast.error('Please fill all required fields');
       return;
     }
@@ -94,15 +128,19 @@ const MainFeature = ({ activeTab }) => {
       ...newInvoice,
       id: `INV-${Date.now()}`,
       amount: Number(newInvoice.amount).toFixed(2),
-      issueDate: new Date(newInvoice.issueDate)
+      issueDate: new Date(newInvoice.issueDate),
+      dueDate: new Date(newInvoice.dueDate),
+      notificationSent: false
     };
     
     setInvoices(prev => [invoice, ...prev]);
     setNewInvoice({
       clientName: '',
+      clientEmail: '',
       invoiceNumber: '',
       amount: '',
       issueDate: format(new Date(), 'yyyy-MM-dd'),
+      dueDate: format(addDays(new Date(), 30), 'yyyy-MM-dd'),
       paymentStatus: 'pending'
     });
     setShowInvoiceForm(false);
@@ -142,7 +180,11 @@ const MainFeature = ({ activeTab }) => {
   const updateInvoiceStatus = (id, status) => {
     setInvoices(prev => 
       prev.map(invoice => 
-        invoice.id === id ? { ...invoice, paymentStatus: status } : invoice
+        invoice.id === id ? { 
+          ...invoice, 
+          paymentStatus: status,
+          notificationSent: status === 'paid' ? false : invoice.notificationSent 
+        } : invoice
       )
     );
     toast.success(`Invoice marked as ${status}`);
@@ -177,6 +219,7 @@ const MainFeature = ({ activeTab }) => {
   const PlusIcon = getIcon('plus');
   const FilterIcon = getIcon('filter');
   const TrashIcon = getIcon('trash-2');
+  const MailIcon = getIcon('mail');
   const CheckIcon = getIcon('check-circle');
   const ClockIcon = getIcon('clock');
   const AlertTriangleIcon = getIcon('alert-triangle');
@@ -400,6 +443,22 @@ const MainFeature = ({ activeTab }) => {
                           required
                         />
                       </div>
+
+                      <div>
+                        <label htmlFor="clientEmail" className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">
+                          Client Email *
+                        </label>
+                        <input
+                          type="email"
+                          id="clientEmail"
+                          value={newInvoice.clientEmail}
+                          onChange={(e) => setNewInvoice({...newInvoice, clientEmail: e.target.value})}
+                          placeholder="client@example.com"
+                          className="input"
+                          required
+                        />
+                      </div>
+                      
                       
                       <div>
                         <label htmlFor="invoiceNumber" className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">
@@ -446,6 +505,21 @@ const MainFeature = ({ activeTab }) => {
                           required
                         />
                       </div>
+                      <div>
+                        <label htmlFor="dueDate" className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">
+                          Due Date *
+                        </label>
+                        <input
+                          type="date"
+                          id="dueDate"
+                          value={newInvoice.dueDate}
+                          onChange={(e) => setNewInvoice({...newInvoice, dueDate: e.target.value})}
+                          className="input"
+                          min={newInvoice.issueDate}
+                          required
+                        />
+                      </div>
+                      
                       
                       <div>
                         <label htmlFor="paymentStatus" className="block text-sm font-medium text-surface-700 dark:text-surface-300 mb-1">
@@ -499,7 +573,10 @@ const MainFeature = ({ activeTab }) => {
                     <th className="text-left py-3 px-4 text-surface-700 dark:text-surface-300 font-medium">Client</th>
                     <th className="text-left py-3 px-4 text-surface-700 dark:text-surface-300 font-medium">Invoice #</th>
                     <th className="text-left py-3 px-4 text-surface-700 dark:text-surface-300 font-medium">Amount</th>
-                    <th className="text-left py-3 px-4 text-surface-700 dark:text-surface-300 font-medium">Issue Date</th>
+                    <th className="text-left py-3 px-4 text-surface-700 dark:text-surface-300 font-medium">Email</th>
+                    <th className="text-left py-3 px-4 text-surface-700 dark:text-surface-300 font-medium">Issued</th>
+                    <th className="text-left py-3 px-4 text-surface-700 dark:text-surface-300 font-medium">Due Date</th>
+                    <th className="text-left py-3 px-4 text-surface-700 dark:text-surface-300 font-medium">Days Overdue</th>
                     <th className="text-left py-3 px-4 text-surface-700 dark:text-surface-300 font-medium">Status</th>
                     <th className="text-right py-3 px-4 text-surface-700 dark:text-surface-300 font-medium">Actions</th>
                   </tr>
@@ -510,15 +587,40 @@ const MainFeature = ({ activeTab }) => {
                       key={invoice.id} 
                       variants={itemVariants}
                       className="border-t border-surface-200 dark:border-surface-700"
+                      style={invoice.paymentStatus === 'overdue' ? {
+                        backgroundColor: 'rgba(254, 242, 242, 0.6)',
+                        borderLeft: '4px solid #ef4444'
+                      } : {}}
                     >
                       <td className="py-3 px-4 text-surface-800 dark:text-surface-200">{invoice.clientName}</td>
                       <td className="py-3 px-4 text-surface-800 dark:text-surface-200">{invoice.invoiceNumber}</td>
                       <td className="py-3 px-4 text-surface-800 dark:text-surface-200">${invoice.amount}</td>
                       <td className="py-3 px-4 text-surface-500 dark:text-surface-400">
+                        {invoice.clientEmail ? invoice.clientEmail : '-'}
+                      </td>
+                      <td className="py-3 px-4 text-surface-500 dark:text-surface-400">
                         {format(new Date(invoice.issueDate), 'MMM dd, yyyy')}
                       </td>
+                      <td className="py-3 px-4 text-surface-500 dark:text-surface-400">
+                        {invoice.dueDate ? format(new Date(invoice.dueDate), 'MMM dd, yyyy') : '-'}
+                      </td>
                       <td className="py-3 px-4">
-                        <span className={`badge ${
+                        {invoice.paymentStatus === 'overdue' && invoice.dueDate ? (
+                          <span className="text-red-600 dark:text-red-400 font-medium">
+                            {Math.floor((new Date() - new Date(invoice.dueDate)) / (1000 * 60 * 60 * 24))} days
+                          </span>
+                        ) : (
+                          <span className="text-surface-400">-</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className={`badge flex items-center gap-1 ${
+                          invoice.paymentStatus === 'overdue' ? 
+                            'badge-danger font-medium' : 
+                            invoice.paymentStatus === 'paid' ? 
+                              'badge-success' : 'badge-warning'
+                        }`}>
+                        <span className={
                           invoice.paymentStatus === 'paid' ? 'badge-success' :
                           invoice.paymentStatus === 'pending' ? 'badge-warning' :
                           'badge-danger'
@@ -535,6 +637,18 @@ const MainFeature = ({ activeTab }) => {
                               title="Mark as Paid"
                             >
                               <CheckIcon className="h-4 w-4" />
+                            </button>
+                          )}
+                          {invoice.paymentStatus === 'overdue' && invoice.clientEmail && (
+                            <button
+                              onClick={() => {
+                                sendOverdueNotification(invoice).then(() => 
+                                  toast.success(`Reminder sent to ${invoice.clientName}`)
+                                );
+                              }}
+                              className="p-1.5 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-300 dark:hover:bg-blue-800"
+                              title="Send Payment Reminder">
+                              <MailIcon className="h-4 w-4" />
                             </button>
                           )}
                           {invoice.paymentStatus === 'overdue' && (

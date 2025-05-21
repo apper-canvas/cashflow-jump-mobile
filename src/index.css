@@ -69,7 +69,7 @@
   }
   
   .badge-danger {
-    @apply bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200;
+    @apply bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 animate-pulse;
   }
 }
 
